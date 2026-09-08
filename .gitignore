@@ -1,0 +1,46 @@
+# 개인정보가 담긴 데이터 폴더. 실행하면 생긴다.
+Original/
+Text/
+Diarization/
+STT-Timestamps/
+Anonymization/
+Anonymization_info/
+Anonymization_diar/
+STT-cache/
+logs/
+
+# 폴더 밖에 놓인 원본 음성도 막는다.
+*.wav
+
+# 실제 이름과 전화번호가 담기므로 JSON은 전부 막고 예시 목록만 통과시킨다.
+*.json
+!anonymization_registry.json
+
+# 실제 값은 예시 파일이 아니라 이 이름으로 복사해서 쓴다.
+*.private.json
+
+# 환각 점검 보고서. 전사 미리보기가 들어간다.
+*.csv
+
+# 저장소에 올리지 않는 점검 도구
+audit_stt_hallucinations.py
+delete_stt_hallucinations.py
+
+# 파이썬
+__pycache__/
+*.py[cod]
+
+# 프로젝트 안에 만든 가상환경
+.venv/
+venv/
+
+# pyannote 허브 토큰 등 비밀값
+.env
+.env.*
+
+# 프로젝트 안에 둔 모델
+models/
+
+# 편집기와 운영체제
+.DS_Store
+.vscode/
