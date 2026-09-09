@@ -1,8 +1,24 @@
+'''
+ref_stt.py 는 Buzz STT와 MSDD diarizer를 사용한 파이프라인입니다.
+
+**  MSDD (Multimodal Speaker Diarization and Detection) **
+    - 음성 분할 및 화자 분할
+    - VAD(Voice Activity Detection) 기반으로 음성 구간 분할
+    - Speaker Embedding을 활용한 화자 분할
+    - 2개의 화자 고정
+
+**  Buzz STT **
+    - whisper 기반 음성 인식
+    - 2개의 화자 고정
+
+**  Missing Speech Recovery **
+    - MSDD와 STT 간의 음성 구간 불일치를 해결하기 위한 재전사 로직
+
+'''
+
 from pathlib import Path
 import inspect
 import os
-
-# ## 수정 ##
 from faster_whisper import WhisperModel, decode_audio
 import torch
 import whisper_diarization.diarization.msdd.msdd as msdd
@@ -16,42 +32,33 @@ import logging
 from nemo.utils import logging as nemo_logging
 
 nemo_logging.setLevel(logging.ERROR)
-# ## 수정 ##
 
 import argparse
 import traceback
 import time
 
-
-# ## 수정 ##
+# Path
 MODEL_PATH = os.environ.get(
     "WHISPER_MODEL_PATH",
     "/모델주소/whisper-large-v3-ct2",
 )
-# ## 수정 ##
 
 AUDIO_EXTENSIONS = {
     ".wav",
 }
 
-# ## 수정 ##
-# Pass 1과 missing-speech retry가 같은 문구 집합을 사용하게 한 곳에서 관리합니다.
-# 자주 나오는 문구를 넣으면 그 표현의 인식률이 올라갑니다.
-# 아래는 예시이므로 실제 데이터에 맞는 문구로 교체하세요.
+# Hot_words
 HOTWORDS = " ".join(
     (
         "안녕하세요",
         "네 알겠습니다",
     )
 )
-# ## 수정 ##
 
 
-# ============================================================
-# ## 수정 ##
+
 # MSDD VAD 설정
-# 현재까지 테스트해서 확정한 값
-# ============================================================
+# 일부 정답지를 활용해 경험적으로 알아낸 최적의 파라미터
 
 original_create_config = msdd.create_config
 
@@ -69,14 +76,9 @@ def custom_create_config():
 
 
 msdd.create_config = custom_create_config
-# ## 수정 ##
 
 
-# ============================================================
-# ## 수정 ##
 # whisper-diarization의 2화자 고정 API 확인
-# ============================================================
-
 def require_two_speaker_msdd_api(diarizer):
     """현재 파이프라인에 필요한 num_speakers 인자 지원 여부를 확인합니다."""
     parameters = inspect.signature(
@@ -95,13 +97,7 @@ def require_two_speaker_msdd_api(diarizer):
         )
 
 
-# ## 수정 ##
-
-
-# ============================================================
-# ## 수정 ##
 # Missing Speech Recovery 설정
-# ============================================================
 
 # MSDD에서는 speech인데 Whisper word가 이 시간 이상 없으면 재전사
 MIN_MISSING_SPEECH_SEC = 1.0
@@ -121,9 +117,7 @@ DEFAULT_RETRY_LOOPS = 1
 # retry에서 이 확률보다 낮은 단어는 최종 전사에 추가X
 MIN_RETRY_WORD_PROBABILITY = 0.35
 
-# ## 수정 ##
-
-
+# srt 시간 형식
 def format_srt_time(seconds):
     ms = int(seconds * 1000)
 
@@ -139,11 +133,7 @@ def format_srt_time(seconds):
     return f"{h:02}:{m:02}:{s:02},{ms:03}"
 
 
-# ============================================================
-# ## 수정 ##
 # Faster-Whisper segment → word list
-# ============================================================
-
 def extract_words_from_segments(segments):
 
     words = []
@@ -180,11 +170,7 @@ def extract_words_from_segments(segments):
     return words
 
 
-# ============================================================
-# ## 수정 ##
 # 시간 구간 병합
-# ============================================================
-
 def merge_intervals(intervals, merge_gap=0.0):
 
     if not intervals:
@@ -222,11 +208,8 @@ def merge_intervals(intervals, merge_gap=0.0):
     ]
 
 
-# ============================================================
-# ## 수정 ##
-# MSDD Speaker 0/1 구간 → 전체 speech union
-# ============================================================
 
+# MSDD Speaker 0/1 구간 → 전체 speech union
 def get_msdd_speech_intervals(
     speaker_segments,
 ):
@@ -248,11 +231,8 @@ def get_msdd_speech_intervals(
     )
 
 
-# ============================================================
-# ## 수정 ##
-# Whisper word가 커버하는 시간 구간
-# ============================================================
 
+# Whisper word가 커버하는 시간 구간
 def get_word_coverage_intervals(words):
 
     intervals = []
@@ -280,11 +260,8 @@ def get_word_coverage_intervals(words):
     )
 
 
-# ============================================================
-# ## 수정 ##
-# MSDD는 speech인데 Whisper word가 없는 구간 탐색
-# ============================================================
 
+# MSDD는 speech인데 Whisper word가 없는 구간 탐색
 def find_missing_speech_intervals(
     speaker_segments,
     words,
@@ -400,11 +377,8 @@ def find_missing_speech_intervals(
     )
 
 
-# ============================================================
-# ## 수정 ##
-# 긴 Missing Speech 영역을 최대 20초로 분할
-# ============================================================
 
+# 긴 Missing Speech 영역을 최대 20초로 분할
 def split_missing_intervals(intervals):
 
     chunks = []
@@ -433,11 +407,9 @@ def split_missing_intervals(intervals):
     return chunks
 
 
-# ============================================================
-# ## 수정 ##
-# 누락된 speech 구간만 Faster-Whisper 재전사
-# ============================================================
 
+# 누락된 speech 구간만 Faster-Whisper 재전사
+# retry -> 재전사 구간 설정
 def retry_missing_speech(
     model,
     audio,
@@ -539,7 +511,6 @@ def retry_missing_speech(
                 ):
                     continue
 
-                # ## 수정 ##
                 probability = getattr(
                     word,
                     "probability",
@@ -553,7 +524,6 @@ def retry_missing_speech(
                     < MIN_RETRY_WORD_PROBABILITY
                 ):
                     continue
-                # ## 수정 ##
 
                 text = word.word.strip()
 
@@ -598,11 +568,7 @@ def retry_missing_speech(
     return recovered_words
 
 
-# ============================================================
-# ## 수정 ##
-# 기존 word + retry word 병합
-# ============================================================
-
+# 기존 word + retry word 병합 > 기존 결과에 이상이 있는 부분 교체
 def merge_transcription_words(
     original_words,
     recovered_words,
@@ -664,11 +630,7 @@ def merge_transcription_words(
     return result
 
 
-# ============================================================
-# ## 수정 ##
 # Whisper word ↔ MSDD speaker overlap 계산
-# ============================================================
-
 def get_word_speaker(
     word_start,
     word_end,
@@ -716,12 +678,9 @@ def get_word_speaker(
     )
 
 
-# ============================================================
-# ## 수정 ##
+
 # overlap이 없는 word는 최종 transcript에 한해
 # 가장 가까운 speaker로 보완
-# ============================================================
-
 def get_nearest_speaker(
     word_start_ms,
     word_end_ms,
@@ -780,11 +739,8 @@ def get_nearest_speaker(
     return best_speaker
 
 
-# ============================================================
-# ## 수정 ##
-# 최종 word list → Speaker mapping
-# ============================================================
 
+# 최종 word list → Speaker mapping
 def map_words_to_speakers(
     words,
     speaker_segments,
@@ -844,10 +800,8 @@ def map_words_to_speakers(
             }
         )
 
-    # --------------------------------------------------------
     # 최종 transcript용 mapping
     # RAW QC 데이터와 별도로 처리
-    # --------------------------------------------------------
 
     final_words = []
 
@@ -873,9 +827,7 @@ def map_words_to_speakers(
             new_item
         )
 
-    # --------------------------------------------------------
     # 문장 중간에 한두 단어만 speaker가 튀는 현상 보정
-    # --------------------------------------------------------
 
     if (
         final_words
@@ -896,11 +848,7 @@ def map_words_to_speakers(
     )
 
 
-# ============================================================
-# ## 수정 ##
 # 같은 speaker의 연속 word → 하나의 발화 turn
-# ============================================================
-
 def build_speaker_turns(
     words,
     max_gap_ms=1000,
@@ -961,11 +909,8 @@ def build_speaker_turns(
     return turns
 
 
-# ============================================================
-# ## 수정 ##
-# 파일 하나 STT + Diarization + Missing Speech Recovery
-# ============================================================
 
+# 파일 하나 STT + Diarization + Missing Speech Recovery
 def transcribe_audio(
     model,
     diarizer,
@@ -975,18 +920,14 @@ def transcribe_audio(
     retry_loops,
 ):
 
-    # --------------------------------------------------------
     # 오디오 한 번만 디코딩
     # Whisper와 MSDD가 같이 사용
-    # --------------------------------------------------------
 
     audio = decode_audio(
         str(input_file)
     )
 
-    # ========================================================
     # Pass 1: 전체 STT
-    # ========================================================
 
     segments, info = model.transcribe(
         audio,
@@ -1014,10 +955,8 @@ def transcribe_audio(
         segments
     )
 
-    # ========================================================
-    # ## 수정 ##
+
     # Pass 1 word 추출
-    # ========================================================
 
     pass1_words = (
         extract_words_from_segments(
@@ -1025,10 +964,8 @@ def transcribe_audio(
         )
     )
 
-    # ========================================================
-    # ## 수정 ##
+
     # MSDD
-    # ========================================================
 
     diarization_status = "ok"
 
@@ -1073,10 +1010,8 @@ def transcribe_audio(
 
             raise
 
-    # ========================================================
-    # ## 수정 ##
+
     # Missing Speech 반복 복구
-    # ========================================================
 
     final_transcription_words = [
         word.copy()
@@ -1195,10 +1130,8 @@ def transcribe_audio(
             new_word_count
         )
 
-    # ========================================================
-    # ## 수정 ##
+ 
     # 모든 retry 종료 후에도 남은 Missing Speech
-    # ========================================================
 
     if speaker_segments:
 
@@ -1213,10 +1146,8 @@ def transcribe_audio(
 
         remaining_missing_intervals = []
 
-    # ========================================================
-    # ## 수정 ##
+
     # 최종 word → Speaker
-    # ========================================================
 
     (
         raw_words,
@@ -1228,10 +1159,8 @@ def transcribe_audio(
         speaker_segments,
     )
 
-    # ========================================================
-    # ## 수정 ##
+
     # Speaker turn
-    # ========================================================
 
     turns = build_speaker_turns(
         final_words
@@ -1242,10 +1171,7 @@ def transcribe_audio(
         exist_ok=True,
     )
 
-    # ========================================================
-    # ## 수정 ##
     # TXT 저장
-    # ========================================================
 
     with open(
         txt_file,
@@ -1279,10 +1205,8 @@ def transcribe_audio(
                     f"{text}\n"
                 )
 
-    # ========================================================
-    # ## 수정 ##
+
     # SRT 저장
-    # ========================================================
 
     with open(
         srt_file,
@@ -1333,10 +1257,7 @@ def transcribe_audio(
                 f"{text}\n\n"
             )
 
-    # ========================================================
-    # ## 수정 ##
     # QC 정보
-    # ========================================================
 
     return {
         "segments": len(segments),
@@ -1383,7 +1304,6 @@ def main(argv=None):
 
     parser = argparse.ArgumentParser()
 
-    # ## 수정 ##
     parser.add_argument(
         "--input-folder",
         dest="input_dir",
@@ -1415,12 +1335,9 @@ def main(argv=None):
         action="store_true",
         help="기존 TXT와 SRT가 모두 있으면 건너뛰고 이어서 처리",
     )
-    # ## 수정 ##
 
-    # ========================================================
-    # ## 수정 ##
+
     # 재전사 반복 횟수
-    # ========================================================
 
     parser.add_argument(
         "--retry-loops",
@@ -1433,11 +1350,9 @@ def main(argv=None):
         ),
     )
 
-    # ## 수정 ##
 
     args = parser.parse_args(argv)
 
-    # ## 수정 ##
     if args.retry_loops < 0:
 
         parser.error(
@@ -1450,7 +1365,6 @@ def main(argv=None):
             "--sample은 "
             "1 이상의 정수여야 합니다."
         )
-    # ## 수정 ##
 
     input_root = Path(
         args.input_dir
@@ -1460,11 +1374,8 @@ def main(argv=None):
         args.output_dir
     ).resolve()
 
-    # ========================================================
-    # ## 수정 ##
-    # 입력/출력/모델 경로와 대상 파일을 모델 로드 전에 검증
-    # ========================================================
 
+    # 입력/출력/모델 경로와 대상 파일을 모델 로드 전에 검증
     model_root = Path(
         args.model_path
     ).expanduser().resolve()
@@ -1563,21 +1474,18 @@ def main(argv=None):
             :args.sample
         ]
 
-    # ## 수정 ##
 
     print("=" * 70)
     print("Model       :", model_root)
     print("Input       :", input_root)
     print("Output      :", output_root)
 
-    # ## 수정 ##
     print(
         "Retry loops :",
         args.retry_loops
     )
     print("Sample      :", args.sample)
     print("Resume      :", args.resume)
-    # ## 수정 ##
 
     print("=" * 70)
 
@@ -1585,7 +1493,6 @@ def main(argv=None):
     # Faster-Whisper
     # ========================================================
 
-    # ## 수정 ##
     try:
 
         model = WhisperModel(
@@ -1603,18 +1510,14 @@ def main(argv=None):
         )
 
         return 2
-    # ## 수정 ##
 
-    # ========================================================
-    # ## 수정 ##
+
     # MSDD도 프로그램 시작 시 1회만 로드
-    # ========================================================
 
     print(
         "Loading MSDD diarizer..."
     )
 
-    # ## 수정 ##
     try:
 
         require_two_speaker_msdd_api(
@@ -1635,13 +1538,11 @@ def main(argv=None):
         )
 
         return 2
-    # ## 수정 ##
 
     print(
         "MSDD diarizer loaded."
     )
 
-    # ## 수정 ##
 
     total = len(
         audio_files
@@ -1655,10 +1556,8 @@ def main(argv=None):
     failed = 0
     skipped = 0
 
-    # ========================================================
-    # ## 수정 ##
+
     # 전체 QC
-    # ========================================================
 
     total_words_all = 0
     unassigned_words_all = 0
@@ -1669,7 +1568,6 @@ def main(argv=None):
 
     vad_silence_count = 0
 
-    # ## 수정 ##
 
     for idx, input_file in enumerate(
         audio_files,
@@ -1692,7 +1590,6 @@ def main(argv=None):
             / relative
         ).with_suffix(".srt")
 
-        # ## 수정 ##
         # --resume일 때만 기존 결과가 둘 다 존재하면 skip
         if (
             args.resume
@@ -1707,16 +1604,13 @@ def main(argv=None):
             )
 
             continue
-        # ## 수정 ##
 
         start_time = time.time()
 
         try:
 
-            # =================================================
-            # ## 수정 ##
+   
             # retry_loops 전달
-            # =================================================
 
             result = (
                 transcribe_audio(
@@ -1729,7 +1623,6 @@ def main(argv=None):
                 )
             )
 
-            # ## 수정 ##
 
             elapsed = (
                 time.time()
@@ -1738,10 +1631,8 @@ def main(argv=None):
 
             success += 1
 
-            # =================================================
-            # ## 수정 ##
+   
             # 전체 QC 누적
-            # =================================================
 
             total_words_all += (
                 result[
@@ -1802,10 +1693,8 @@ def main(argv=None):
 
                 unassigned_ratio = 0.0
 
-            # =================================================
-            # ## 수정 ##
+      
             # 파일별 QC 출력
-            # =================================================
 
             status = result[
                 "diarization_status"
@@ -1852,13 +1741,11 @@ def main(argv=None):
                     f"time={elapsed:.1f}s"
                 )
 
-            # ## 수정 ##
 
         except Exception as e:
 
             failed += 1
 
-            # ## 수정 ##
             # 재처리가 실패한 파일의 예전/부분 결과가 2단계로 넘어가지 않게 합니다.
             # 성공한 뒤에는 두 파일이 모두 완성되므로 이 경로를 타지 않습니다.
             for incomplete_output in (
@@ -1878,7 +1765,6 @@ def main(argv=None):
                         "  WARNING: 실패 결과를 지우지 못했습니다: "
                         f"{incomplete_output}: {cleanup_error}"
                     )
-            # ## 수정 ##
 
             print(
                 f"[{idx}/{total}] ERROR: "
@@ -1895,10 +1781,8 @@ def main(argv=None):
     print(f"Skipped : {skipped}")
     print(f"Failed  : {failed}")
 
-    # ========================================================
-    # ## 수정 ##
+
     # 전체 QC 출력
-    # ========================================================
 
     if total_words_all > 0:
 
@@ -1943,16 +1827,11 @@ def main(argv=None):
         f"{vad_silence_count}"
     )
 
-    # ## 수정 ##
 
     print("=" * 70)
 
-    # ## 수정 ##
     return 1 if failed else 0
-    # ## 수정 ##
 
 
 if __name__ == "__main__":
-    # ## 수정 ##
     raise SystemExit(main())
-    # ## 수정 ##
