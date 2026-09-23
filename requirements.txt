@@ -1,0 +1,19 @@
+# PyTorch 설치본은 서버의 CUDA 버전과 호환되어야 합니다.
+torch>=2.8
+torchaudio>=2.8
+torchcodec>=0.7
+
+# Whisper STT 및 익명화 LLM
+transformers
+accelerate
+safetensors
+sentencepiece
+
+# 화자 분리 및 로컬/Hub 모델 로딩
+pyannote.audio>=4.0,<5.0
+huggingface-hub
+
+# pip 밖의 필수 요건:
+# - ffmpeg와 ffprobe가 PATH에 있어야 합니다.
+# - GPU 실행 시 NVIDIA 드라이버와 위 PyTorch에 맞는 CUDA 런타임이 필요합니다.
+# - Whisper, pyannote, 익명화 LLM 모델 파일은 별도로 준비해야 합니다.
